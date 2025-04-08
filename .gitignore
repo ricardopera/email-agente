@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos compilados pelo PyInstaller
+build/
+dist/
+*.manifest
+*.spec
+
+# Arquivos de log
+*.log
+
+# Ambientes virtuais
+venv/
+env/
+ENV/
+
+# Arquivos de configuração (exceto a versão de exemplo)
+config.json
+
+# Arquivos Excel gerados
+*.xlsx
+
+# Arquivos temporários
+*.tmp
