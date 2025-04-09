@@ -7,7 +7,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['imaplib', 'email', 'json', 'logging', 'src', 'src.email_processor', 'src.app'],
+    hiddenimports=['imaplib', 'email', 'json', 'logging', 'src', 'src.email_processor', 'src.app', 'pandas', 'tkinter', 'openpyxl', 'openpyxl.cell', 'openpyxl.workbook', 'openpyxl.writer'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -33,7 +33,31 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # Alterado para True para mostrar console com mensagens de erro
+    console=False,  # Modificado para False para esconder o console
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='NONE'
+)
+
+# Segunda versão com console (para debug)
+exe_debug = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='EmailExtrator_Debug',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=True,  # Console habilitado para debug
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

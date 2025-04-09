@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, simpledialog, messagebox, BooleanVar
+from tkinter import ttk, simpledialog, messagebox, BooleanVar, Checkbutton, StringVar, Frame, Listbox, MULTIPLE, Toplevel
 import threading
 import sys
 import os
@@ -22,6 +22,29 @@ class EmailApp:
         self.style.configure("TButton", font=("Arial", 10))
         self.style.configure("Header.TLabel", font=("Arial", 12, "bold"))
         
+        # Padrões de campos disponíveis para extração
+        self.available_fields = {
+            'Número do Processo': 'Número processo CNJ',
+            'Valor Líquido': 'Valor liquido transferido para parte',
+            'Juiz': 'Juiz(a) autorizador(a)',
+            'Chefe de Cartório': 'Chefe de cartório responsável',
+            'Subconta': 'Subconta',
+            'Valor Solicitado': 'Valor do pedido solicitado',
+            'Valor Total': 'Valor total do pedido efetuado',
+            'Tipo de Saque': 'Tipo de saque',
+            'Beneficiado': 'Beneficiado',
+            'CPF/CNPJ': 'CPF/CNPJ',
+            'Data do Pedido': 'Data do pedido',
+            'Data da Liberação': 'Data da liberação',
+            'Banco': 'Banco',
+            'Agência': 'Agência',
+            'Conta': 'Conta',
+            'Comprovante': 'Comprovante de liberação'
+        }
+        
+        # Campos selecionados para extração (padrão)
+        self.selected_fields = ['Número do Processo', 'Valor Líquido']
+        
         # Carregar configurações salvas
         self.load_saved_config()
         
@@ -33,13 +56,19 @@ class EmailApp:
             config = self.email_processor.load_config()
             self.saved_email = config.get('email_user', '')
             self.saved_server = config.get('imap_host', 'mail.itajai.sc.gov.br')  # Alterando o valor padrão
-            self.saved_subject = config.get('search_subject', '')
+            self.saved_subject = config.get('search_subject', 'Confirmacao de transferencia bancaria')
+            
+            # Carregar campos de extração salvos
+            if 'fields_to_extract' in config:
+                self.selected_fields = config.get('fields_to_extract', ['Número do Processo', 'Valor Líquido'])
+                self.email_processor.fields_to_extract = self.selected_fields
+            
             logger.info("Configurações carregadas na interface")
         except Exception as e:
             logger.error(f"Erro ao carregar configurações na interface: {str(e)}")
             self.saved_email = ''
             self.saved_server = 'mail.itajai.sc.gov.br'  # Alterando o valor padrão
-            self.saved_subject = ''
+            self.saved_subject = 'Confirmacao de transferencia bancaria'  # Valor padrão do assunto
         
     def create_widgets(self):
         # Frame principal
@@ -87,24 +116,123 @@ class EmailApp:
         self.subject_var = tk.StringVar(value=self.saved_subject)
         ttk.Entry(main_frame, textvariable=self.subject_var, width=40).grid(row=6, column=1, sticky=tk.W, pady=5)
         
+        # Botão para configurar campos de extração
+        extraction_frame = ttk.Frame(main_frame)
+        extraction_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        ttk.Label(extraction_frame, text="Campos para Extração:").pack(side=tk.LEFT, padx=(0, 10))
+        self.selected_fields_display = ttk.Label(extraction_frame, text=self.format_selected_fields())
+        self.selected_fields_display.pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(extraction_frame, text="Configurar", command=self.open_field_selector).pack(side=tk.LEFT)
+        
         # Saída de log
-        ttk.Label(main_frame, text="Log de Operações:").grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        ttk.Label(main_frame, text="Log de Operações:").grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
         
         self.log_text = tk.Text(main_frame, height=10, width=60, wrap=tk.WORD)
-        self.log_text.grid(row=8, column=0, columnspan=2, pady=5)
+        self.log_text.grid(row=9, column=0, columnspan=2, pady=5)
         
         # Scroll para o log
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.log_text.yview)
-        scrollbar.grid(row=8, column=2, sticky=(tk.N, tk.S))
+        scrollbar.grid(row=9, column=2, sticky=(tk.N, tk.S))
         self.log_text.configure(yscrollcommand=scrollbar.set)
         
         # Botões
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=9, column=0, columnspan=2, pady=15)
+        button_frame.grid(row=10, column=0, columnspan=2, pady=15)
         
         ttk.Button(button_frame, text="Processar Emails", command=self.start_processing).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Teste de Conexão", command=self.test_connection).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Sair", command=self.root.quit).pack(side=tk.LEFT, padx=10)
+    
+    def format_selected_fields(self):
+        """Formata os campos selecionados para exibição"""
+        if not self.selected_fields:
+            return "Nenhum campo selecionado"
+        
+        if len(self.selected_fields) <= 2:
+            return ", ".join(self.selected_fields)
+        else:
+            return ", ".join(self.selected_fields[:2]) + f" e mais {len(self.selected_fields) - 2}..."
+    
+    def open_field_selector(self):
+        """Abre a janela de seleção de campos para extração"""
+        selector = Toplevel(self.root)
+        selector.title("Selecionar Campos para Extração")
+        selector.geometry("400x400")
+        selector.transient(self.root)  # Faz a janela aparecer acima da janela principal
+        
+        ttk.Label(selector, text="Selecione os campos que deseja extrair dos emails:",
+                 style="Header.TLabel").pack(pady=10, padx=20)
+        
+        # Criar listbox com scrollbar
+        frame = ttk.Frame(selector)
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        listbox = Listbox(frame, selectmode=MULTIPLE, height=15, width=40,
+                         yscrollcommand=scrollbar.set)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Preencher a listbox com os campos disponíveis
+        for field_name in self.available_fields:
+            listbox.insert(tk.END, f"{field_name}: {self.available_fields[field_name]}")
+            # Se o campo estiver na lista de selecionados, marcar ele
+            if field_name in self.selected_fields:
+                idx = list(self.available_fields.keys()).index(field_name)
+                listbox.selection_set(idx)
+        
+        # Botões
+        button_frame = ttk.Frame(selector)
+        button_frame.pack(pady=15)
+        
+        ttk.Button(button_frame, text="Confirmar", command=lambda: self.save_selected_fields(listbox, selector)).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Cancelar", command=selector.destroy).pack(side=tk.LEFT, padx=10)
+        
+        # Tornar a janela modal
+        selector.grab_set()
+        self.root.wait_window(selector)
+    
+    def save_selected_fields(self, listbox, selector):
+        """Salva os campos selecionados"""
+        selected_indices = listbox.curselection()
+        field_names = list(self.available_fields.keys())
+        
+        self.selected_fields = [field_names[i] for i in selected_indices]
+        
+        if not self.selected_fields:
+            messagebox.showwarning("Aviso", "É necessário selecionar ao menos um campo.")
+            return
+        
+        # Atualizar os padrões de extração no EmailProcessor
+        self.email_processor.fields_to_extract = self.selected_fields
+        
+        # Atualizar a exibição na interface
+        self.selected_fields_display.config(text=self.format_selected_fields())
+        
+        # Atualizar os padrões de extração
+        extraction_patterns = {}
+        for field_name in self.selected_fields:
+            description = self.available_fields[field_name]
+            # Criar um padrão regex básico para cada campo
+            pattern = r'{}[\\s:]*(.+?)(?=\\n|$)'.format(re.escape(description))
+            extraction_patterns[field_name] = pattern
+            
+        # Definir padrões mais específicos para certos campos
+        if 'Número do Processo' in self.selected_fields:
+            extraction_patterns['Número do Processo'] = r'(?:Número processo CNJ|Processo)[\s:]*([\d.-]+)'
+        
+        if 'Valor Líquido' in self.selected_fields:
+            extraction_patterns['Valor Líquido'] = r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)'
+            
+        self.email_processor.extraction_patterns = extraction_patterns
+        
+        self.log(f"Configurados {len(self.selected_fields)} campos para extração: {', '.join(self.selected_fields)}")
+        
+        # Fechar a janela de seleção
+        selector.destroy()
     
     def log(self, message):
         """Adiciona uma mensagem ao log"""
@@ -181,7 +309,7 @@ class EmailApp:
         
         # Salvar as configurações para uso futuro
         self.email_processor.search_subject = subject
-        self.email_processor.save_config(email, server, subject)
+        self.email_processor.save_config(email, server, subject, self.selected_fields)
         
         # Iniciar thread para não bloquear a interface
         threading.Thread(target=self.process_emails, 

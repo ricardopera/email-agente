@@ -30,11 +30,17 @@ class EmailProcessor:
         self.imap_host = None
         self.imap_port = 993  # Definindo a porta padrão IMAPS
         self.search_subject = None
-        self.process_number_pattern = r'(?:Número do Processo CNJ|Processo)[\s:]*([\d.-]+)'
+        # Padrões de extração padrão
+        self.extraction_patterns = {
+            'Número do Processo': r'(?:Número do Processo CNJ|Processo)[\s:]*([\d.-]+)',
+            'Valor Líquido': r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)'
+        }
+        # Campos a serem extraídos (padrão)
+        self.fields_to_extract = ['Número do Processo', 'Valor Líquido']
         self.extracted_data = []
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config.json')
         
-    def save_config(self, email_user, imap_host, search_subject):
+    def save_config(self, email_user, imap_host, search_subject, fields_to_extract=None):
         """Salva as configurações para uso futuro"""
         try:
             config = {
@@ -42,6 +48,10 @@ class EmailProcessor:
                 'imap_host': imap_host,
                 'search_subject': search_subject
             }
+            
+            # Salvar os campos para extração, se fornecidos
+            if fields_to_extract:
+                config['fields_to_extract'] = fields_to_extract
             
             with open(self.config_file, 'w') as f:
                 json.dump(config, f)
@@ -76,7 +86,7 @@ class EmailProcessor:
             self._check_network_connectivity(imap_host, imap_port)
             
             # Salva as configurações antes da conexão
-            self.save_config(email_user, imap_host, self.search_subject)
+            self.save_config(email_user, imap_host, self.search_subject, self.fields_to_extract)
             
             # Definindo timeout para a conexão
             imaplib.IMAP4.TIMEOUT = timeout
@@ -217,12 +227,14 @@ class EmailProcessor:
         
         return content
 
-    def extract_process_number(self, text):
-        """Extrai o número do processo do texto do email"""
-        match = re.search(self.process_number_pattern, text)
-        if match:
-            return match.group(1)
-        return None
+    def extract_fields(self, text):
+        """Extrai os campos especificados do texto do email"""
+        extracted_fields = {}
+        for field, pattern in self.extraction_patterns.items():
+            match = re.search(pattern, text)
+            if match:
+                extracted_fields[field] = match.group(1)
+        return extracted_fields
 
     def search_emails(self, search_subject):
         """Busca emails não lidos com o assunto específico"""
@@ -275,19 +287,19 @@ class EmailProcessor:
                 # Obter conteúdo do email
                 content = self.get_email_content(msg)
                 
-                # Extrair número do processo
-                process_number = self.extract_process_number(content)
+                # Extrair campos especificados
+                extracted_fields = self.extract_fields(content)
                 
-                if process_number:
-                    logger.info(f"Número de processo encontrado: {process_number}")
-                    self.extracted_data.append({
+                if extracted_fields:
+                    logger.info(f"Campos extraídos: {extracted_fields}")
+                    extracted_fields.update({
                         'Assunto': subject,
                         'Remetente': sender,
-                        'Data': date,
-                        'Número do Processo': process_number
+                        'Data': date
                     })
+                    self.extracted_data.append(extracted_fields)
                 else:
-                    logger.warning(f"Nenhum número de processo encontrado no email com assunto: {subject}")
+                    logger.warning(f"Nenhum campo especificado encontrado no email com assunto: {subject}")
                     
                 processed += 1
                 logger.debug(f"Email processado: {processed}/{total_emails}")
@@ -295,7 +307,7 @@ class EmailProcessor:
             except Exception as e:
                 logger.error(f"Erro ao processar email ID {email_id}: {str(e)}", exc_info=True)
         
-        logger.info(f"Processamento finalizado. {processed} emails processados, {len(self.extracted_data)} números de processo extraídos.")
+        logger.info(f"Processamento finalizado. {processed} emails processados, {len(self.extracted_data)} campos extraídos.")
         return processed
 
     def save_to_excel(self, filename=None):
@@ -304,23 +316,55 @@ class EmailProcessor:
             messagebox.showinfo("Informação", "Nenhum dado para salvar.")
             return False
             
-        if filename is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"processos_extraidos_{timestamp}.xlsx"
-            
         try:
+            # Criar DataFrame com os dados extraídos
             df = pd.DataFrame(self.extracted_data)
-            # Definir ordem das colunas
-            df = df[['Número do Processo', 'Assunto', 'Remetente', 'Data']]
             
-            # Salvar para Excel
+            # Definir nome do arquivo Excel
+            if filename is None:
+                # Usar nome padrão com timestamp para evitar sobrescrever arquivos existentes
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                default_filename = f"processos_extraidos_{timestamp}.xlsx"
+                # Verificar se temos arquivo Excel padrão no diretório atual
+                excel_files = [f for f in os.listdir(os.getcwd()) if f.endswith('.xlsx') and f.startswith('processos_extraidos')]
+                
+                # Se existir algum arquivo Excel de dados extraídos, usar o mais recente
+                if excel_files:
+                    filename = sorted(excel_files)[-1]  # Pega o mais recente alfabeticamente (geralmente pelo timestamp)
+                    logger.info(f"Encontrado arquivo existente: {filename}")
+                else:
+                    filename = default_filename
+                    logger.info(f"Criando novo arquivo: {filename}")
+            
+            # Caminho completo para o arquivo
             full_path = os.path.join(os.getcwd(), filename)
-            df.to_excel(full_path, index=False)
+            
+            # Verificar se o arquivo já existe
+            if os.path.exists(full_path):
+                try:
+                    # Tentar ler o arquivo existente para acrescentar os novos dados
+                    existing_df = pd.read_excel(full_path)
+                    # Concatenar os dados existentes com os novos
+                    combined_df = pd.concat([existing_df, df], ignore_index=True)
+                    logger.info(f"Acrescentando dados ao arquivo existente: {full_path}")
+                    # Salvar o arquivo com todos os dados
+                    combined_df.to_excel(full_path, index=False)
+                except Exception as e:
+                    # Se houver erro ao ler o arquivo existente, criar um novo
+                    logger.warning(f"Não foi possível ler o arquivo existente: {str(e)}")
+                    logger.info(f"Criando novo arquivo: {full_path}")
+                    df.to_excel(full_path, index=False)
+            else:
+                # O arquivo não existe, criar um novo
+                logger.info(f"Criando novo arquivo: {full_path}")
+                df.to_excel(full_path, index=False)
             
             messagebox.showinfo("Sucesso", f"Dados salvos com sucesso em {full_path}")
             return True
         except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao salvar arquivo Excel: {str(e)}")
+            error_msg = f"Erro ao salvar arquivo Excel: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            messagebox.showerror("Erro", error_msg)
             return False
 
     def close_connection(self):
