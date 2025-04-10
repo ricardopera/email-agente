@@ -30,17 +30,17 @@ class EmailProcessor:
         self.imap_host = None
         self.imap_port = 993  # Definindo a porta padrão IMAPS
         self.search_subject = None
-        # Padrões de extração padrão
-        self.extraction_patterns = {
-            'Número do Processo': r'(?:Número do Processo CNJ|Processo)[\s:]*([\d.-]+)',
-            'Valor Líquido': r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)'
-        }
-        # Campos a serem extraídos (padrão)
-        self.fields_to_extract = ['Número do Processo', 'Valor Líquido']
+        
+        # Campos personalizados para extração
+        self.custom_fields = [
+            {"name": "Número processo CNJ", "pattern": r'(?:Número processo CNJ|Processo)[\s:]*([\d.-]+)', "format": "texto"},
+            {"name": "Valor liquido transferido para parte", "pattern": r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)', "format": "número"}
+        ]
+        
         self.extracted_data = []
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config.json')
         
-    def save_config(self, email_user, imap_host, search_subject, fields_to_extract=None):
+    def save_config(self, email_user, imap_host, search_subject, custom_fields=None):
         """Salva as configurações para uso futuro"""
         try:
             config = {
@@ -49,9 +49,9 @@ class EmailProcessor:
                 'search_subject': search_subject
             }
             
-            # Salvar os campos para extração, se fornecidos
-            if fields_to_extract:
-                config['fields_to_extract'] = fields_to_extract
+            # Salvar os campos personalizados, se fornecidos
+            if custom_fields:
+                config['custom_fields'] = custom_fields
             
             with open(self.config_file, 'w') as f:
                 json.dump(config, f)
@@ -86,7 +86,10 @@ class EmailProcessor:
             self._check_network_connectivity(imap_host, imap_port)
             
             # Salva as configurações antes da conexão
-            self.save_config(email_user, imap_host, self.search_subject, self.fields_to_extract)
+            self.email_user = email_user
+            self.email_pass = email_pass
+            self.imap_host = imap_host
+            self.imap_port = imap_port
             
             # Definindo timeout para a conexão
             imaplib.IMAP4.TIMEOUT = timeout
@@ -180,7 +183,7 @@ class EmailProcessor:
         return text
 
     def decode_email_subject(self, subject):
-        """Decodifica o assunto do email"""
+        """Decodifica o assunto do email, tratando adequadamente caracteres do português"""
         if subject is None:
             return ""
         decoded_parts = []
@@ -188,17 +191,36 @@ class EmailProcessor:
             if isinstance(part, bytes):
                 if encoding:
                     try:
+                        # Tenta usar a codificação especificada primeiro
                         decoded_parts.append(part.decode(encoding))
-                    except:
-                        decoded_parts.append(part.decode('utf-8', errors='replace'))
+                    except (UnicodeDecodeError, LookupError):
+                        try:
+                            # Tenta UTF-8 que é comum para caracteres especiais do português
+                            decoded_parts.append(part.decode('utf-8'))
+                        except UnicodeDecodeError:
+                            # Fallback para latin-1 (ISO-8859-1) que é comum em emails em português
+                            try:
+                                decoded_parts.append(part.decode('latin-1'))
+                            except:
+                                # Último recurso: substituição de caracteres não reconhecidos
+                                decoded_parts.append(part.decode('utf-8', errors='replace'))
                 else:
-                    decoded_parts.append(part.decode('utf-8', errors='replace'))
+                    try:
+                        # Tenta UTF-8 primeiro
+                        decoded_parts.append(part.decode('utf-8'))
+                    except UnicodeDecodeError:
+                        try:
+                            # Tenta latin-1 que é comum para português
+                            decoded_parts.append(part.decode('latin-1'))
+                        except:
+                            # Último recurso com substituição de caracteres
+                            decoded_parts.append(part.decode('utf-8', errors='replace'))
             else:
                 decoded_parts.append(part)
         return ''.join(decoded_parts)
 
     def get_email_content(self, msg):
-        """Extrai o conteúdo do email (texto)"""
+        """Extrai o conteúdo do email (texto), tratando adequadamente caracteres do português"""
         content = ""
         if msg.is_multipart():
             for part in msg.walk():
@@ -212,35 +234,130 @@ class EmailProcessor:
                 # Obter conteúdo de texto
                 if content_type == "text/plain" or content_type == "text/html":
                     try:
-                        body = part.get_payload(decode=True).decode('utf-8', errors='replace')
+                        # Tentar obter a codificação especificada no email
+                        charset = part.get_content_charset()
+                        if charset:
+                            body = part.get_payload(decode=True).decode(charset)
+                        else:
+                            # Se não especificado, tentar UTF-8
+                            body = part.get_payload(decode=True).decode('utf-8')
                         content += body
-                    except:
-                        pass
+                    except UnicodeDecodeError:
+                        try:
+                            # UTF-8 falhou, tentar latin-1 (comum para português)
+                            body = part.get_payload(decode=True).decode('latin-1')
+                            content += body
+                        except:
+                            # Último recurso: substituição de caracteres
+                            body = part.get_payload(decode=True).decode('utf-8', errors='replace')
+                            content += body
         else:
             # Mensagens não multipart
             content_type = msg.get_content_type()
             if content_type == "text/plain" or content_type == "text/html":
                 try:
-                    content = msg.get_payload(decode=True).decode('utf-8', errors='replace')
-                except:
-                    pass
+                    # Tentar obter a codificação especificada no email
+                    charset = msg.get_content_charset()
+                    if charset:
+                        content = msg.get_payload(decode=True).decode(charset)
+                    else:
+                        # Se não especificado, tentar UTF-8
+                        content = msg.get_payload(decode=True).decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        # UTF-8 falhou, tentar latin-1 (comum para português)
+                        content = msg.get_payload(decode=True).decode('latin-1')
+                    except:
+                        # Último recurso: substituição de caracteres
+                        content = msg.get_payload(decode=True).decode('utf-8', errors='replace')
         
         return content
 
     def extract_fields(self, text):
-        """Extrai os campos especificados do texto do email"""
+        """Extrai os campos personalizados do texto do email baseado no formato especificado"""
         extracted_fields = {}
-        for field, pattern in self.extraction_patterns.items():
+        
+        # Aplicar cada padrão de extração personalizado
+        for field in self.custom_fields:
+            field_name = field["name"]
+            field_format = field.get("format", "texto")  # Formato padrão é texto
+            
+            # Criar um padrão que capture especificamente o texto entre ": " e a quebra de linha
+            # Primeiro tentamos encontrar o campo exato com dois-pontos
+            pattern = r'{}:\s*([^\r\n]+)'.format(re.escape(field_name))
             match = re.search(pattern, text)
+            
+            # Se não encontrar com o formato exato, tenta um formato mais flexível
+            if not match:
+                pattern = r'{}\s*:?\s*([^\r\n]+)'.format(re.escape(field_name))
+                match = re.search(pattern, text)
+            
             if match:
-                extracted_fields[field] = match.group(1)
+                raw_value = match.group(1).strip()
+                # Processar o valor conforme o formato especificado
+                processed_value = self.process_value(raw_value, field_format)
+                extracted_fields[field_name] = processed_value
+            else:
+                # Se não encontrar, definir como vazio
+                extracted_fields[field_name] = ""
+                logger.warning(f"Campo '{field_name}' não encontrado no texto do email")
+                
         return extracted_fields
+        
+    def process_value(self, value, format_type):
+        """
+        Processa o valor extraído de acordo com o formato especificado
+        - texto: mantém como texto
+        - número: converte para número (formato brasileiro para decimal)
+        - data: converte para formato de data
+        """
+        if not value:
+            return value
+            
+        try:
+            if format_type == "número":
+                # Remover símbolos de moeda (R$, $, etc) e espaços
+                value = re.sub(r'[R$\s]', '', value)
+                # Substituir pontos de milhar e vírgulas decimais para formato numérico
+                # Ex: "1.234,56" -> 1234.56
+                if ',' in value:
+                    # Remove pontos (separadores de milhar)
+                    value = value.replace('.', '')
+                    # Substitui vírgula por ponto (separador decimal)
+                    value = value.replace(',', '.')
+                return float(value)
+                
+            elif format_type == "data":
+                # Converte data do formato brasileiro (dd/mm/yyyy) para formato ISO
+                if '/' in value:
+                    day, month, year = value.split('/')
+                    return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+                return value
+                
+            else:  # formato texto ou não especificado
+                return value
+                
+        except Exception as e:
+            logger.warning(f"Erro ao processar valor '{value}' para formato '{format_type}': {str(e)}")
+            return value
 
     def search_emails(self, search_subject):
-        """Busca emails não lidos com o assunto específico"""
+        """Busca emails não lidos com o assunto específico, suportando caracteres do português"""
         try:
             self.imap_server.select('INBOX')
-            status, messages = self.imap_server.search(None, '(UNSEEN SUBJECT "{}")'.format(search_subject))
+            
+            # Codificação para lidar com caracteres especiais no assunto da busca
+            # Para IMAP, usamos a codificação UTF-8 em strings literais
+            try:
+                # Usar caracteres literais para garantir que caracteres especiais sejam tratados corretamente
+                # Isso é necessário para suportar acentos e outros caracteres especiais do português na pesquisa
+                self.imap_server.literal = search_subject.encode('utf-8')
+                status, messages = self.imap_server.search(None, 'UNSEEN SUBJECT')
+            except (AttributeError, UnicodeEncodeError):
+                # Fallback para o método tradicional se o anterior falhar
+                # Isso pode não funcionar perfeitamente com caracteres especiais
+                logger.warning("Usando método de busca alternativo para sujeito com caracteres especiais")
+                status, messages = self.imap_server.search(None, '(UNSEEN SUBJECT "{}")'.format(search_subject))
             
             if status != 'OK':
                 messagebox.showwarning("Aviso", "Não foi possível buscar emails.")
@@ -254,6 +371,7 @@ class EmailProcessor:
                 
             return email_ids
         except Exception as e:
+            logger.error(f"Erro ao buscar emails: {str(e)}", exc_info=True)
             messagebox.showerror("Erro", f"Erro ao buscar emails: {str(e)}")
             return []
 
@@ -261,6 +379,9 @@ class EmailProcessor:
         """Processa cada email encontrado"""
         total_emails = len(email_ids)
         processed = 0
+        
+        # Limpar dados extraídos anteriormente
+        self.extracted_data = []
         
         logger.info(f"Iniciando processamento de {total_emails} emails")
         
@@ -287,19 +408,16 @@ class EmailProcessor:
                 # Obter conteúdo do email
                 content = self.get_email_content(msg)
                 
-                # Extrair campos especificados
+                # Extrair campos personalizados
                 extracted_fields = self.extract_fields(content)
                 
                 if extracted_fields:
+                    # Adicionar metadados do email apenas se solicitado
+                    # (mantemos apenas os campos especificados pelo usuário)
                     logger.info(f"Campos extraídos: {extracted_fields}")
-                    extracted_fields.update({
-                        'Assunto': subject,
-                        'Remetente': sender,
-                        'Data': date
-                    })
                     self.extracted_data.append(extracted_fields)
                 else:
-                    logger.warning(f"Nenhum campo especificado encontrado no email com assunto: {subject}")
+                    logger.warning(f"Nenhum campo personalizado encontrado no email com assunto: {subject}")
                     
                 processed += 1
                 logger.debug(f"Email processado: {processed}/{total_emails}")
@@ -307,11 +425,11 @@ class EmailProcessor:
             except Exception as e:
                 logger.error(f"Erro ao processar email ID {email_id}: {str(e)}", exc_info=True)
         
-        logger.info(f"Processamento finalizado. {processed} emails processados, {len(self.extracted_data)} campos extraídos.")
+        logger.info(f"Processamento finalizado. {processed} emails processados, {len(self.extracted_data)} registros extraídos.")
         return processed
 
     def save_to_excel(self, filename=None):
-        """Salva os dados extraídos em um arquivo Excel"""
+        """Salva os dados extraídos em um arquivo Excel com os formatos adequados"""
         if not self.extracted_data:
             messagebox.showinfo("Informação", "Nenhum dado para salvar.")
             return False
@@ -342,22 +460,84 @@ class EmailProcessor:
             # Verificar se o arquivo já existe
             if os.path.exists(full_path):
                 try:
-                    # Tentar ler o arquivo existente para acrescentar os novos dados
-                    existing_df = pd.read_excel(full_path)
-                    # Concatenar os dados existentes com os novos
-                    combined_df = pd.concat([existing_df, df], ignore_index=True)
+                    # Criar um escritor Excel com formato
+                    with pd.ExcelWriter(full_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+                        # Ler o arquivo existente para obter os dados
+                        existing_df = pd.read_excel(full_path)
+                        
+                        # Garantir que temos todas as colunas necessárias
+                        for col in df.columns:
+                            if col not in existing_df.columns:
+                                existing_df[col] = ""
+                        
+                        # Garantir que novos dados têm as mesmas colunas do arquivo existente
+                        for col in existing_df.columns:
+                            if col not in df.columns:
+                                df[col] = ""
+                        
+                        # Concatenar os dados existentes com os novos
+                        combined_df = pd.concat([existing_df, df], ignore_index=True)
+                        
+                        # Configurar os formatos para cada coluna baseado nos formatos definidos
+                        for field in self.custom_fields:
+                            field_name = field["name"]
+                            field_format = field.get("format", "texto")
+                            
+                            # Aplicar formatos específicos às colunas do DataFrame
+                            if field_name in combined_df.columns:
+                                if field_format == "número":
+                                    # Converter para float caso ainda não seja
+                                    combined_df[field_name] = pd.to_numeric(combined_df[field_name], errors='coerce')
+                                elif field_format == "data":
+                                    # Converter para datetime
+                                    combined_df[field_name] = pd.to_datetime(combined_df[field_name], errors='coerce')
+                        
+                        # Salvar o arquivo com todos os dados
+                        combined_df.to_excel(writer, index=False, sheet_name='Sheet1')
+                        
                     logger.info(f"Acrescentando dados ao arquivo existente: {full_path}")
-                    # Salvar o arquivo com todos os dados
-                    combined_df.to_excel(full_path, index=False)
                 except Exception as e:
                     # Se houver erro ao ler o arquivo existente, criar um novo
-                    logger.warning(f"Não foi possível ler o arquivo existente: {str(e)}")
+                    logger.warning(f"Não foi possível atualizar o arquivo existente: {str(e)}")
                     logger.info(f"Criando novo arquivo: {full_path}")
-                    df.to_excel(full_path, index=False)
+                    
+                    # Criar um novo arquivo com os formatos adequados
+                    with pd.ExcelWriter(full_path, engine='openpyxl') as writer:
+                        # Configurar os formatos para cada coluna
+                        for field in self.custom_fields:
+                            field_name = field["name"]
+                            field_format = field.get("format", "texto")
+                            
+                            # Aplicar formatos específicos às colunas do DataFrame
+                            if field_name in df.columns:
+                                if field_format == "número":
+                                    # Converter para float caso ainda não seja
+                                    df[field_name] = pd.to_numeric(df[field_name], errors='coerce')
+                                elif field_format == "data":
+                                    # Converter para datetime
+                                    df[field_name] = pd.to_datetime(df[field_name], errors='coerce')
+                        
+                        df.to_excel(writer, index=False)
             else:
                 # O arquivo não existe, criar um novo
                 logger.info(f"Criando novo arquivo: {full_path}")
-                df.to_excel(full_path, index=False)
+                
+                with pd.ExcelWriter(full_path, engine='openpyxl') as writer:
+                    # Configurar os formatos para cada coluna
+                    for field in self.custom_fields:
+                        field_name = field["name"]
+                        field_format = field.get("format", "texto")
+                        
+                        # Aplicar formatos específicos às colunas do DataFrame
+                        if field_name in df.columns:
+                            if field_format == "número":
+                                # Converter para float caso ainda não seja
+                                df[field_name] = pd.to_numeric(df[field_name], errors='coerce')
+                            elif field_format == "data":
+                                # Converter para datetime
+                                df[field_name] = pd.to_datetime(df[field_name], errors='coerce')
+                    
+                    df.to_excel(writer, index=False)
             
             messagebox.showinfo("Sucesso", f"Dados salvos com sucesso em {full_path}")
             return True

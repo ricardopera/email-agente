@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 import platform
+import time
+import shutil
 
 def criar_executavel():
     print("Iniciando criação do executável do EmailExtrator...")
@@ -34,20 +36,41 @@ def criar_executavel():
                 print(f"Erro ao instalar {dep}: {str(e)}")
                 return False
     
+    # Remover o arquivo executável existente se ele existir
+    dist_dir = os.path.join(os.getcwd(), "dist")
+    exe_path = os.path.join(dist_dir, "EmailExtrator.exe")
+    
+    if os.path.exists(exe_path):
+        print(f"Removendo versão anterior do executável: {exe_path}")
+        try:
+            # Tentativa 1: Remover diretamente
+            os.remove(exe_path)
+        except PermissionError:
+            print("Não foi possível remover o arquivo diretamente. Tentando outras abordagens...")
+            try:
+                # Tentativa 2: Renomear antes de excluir
+                temp_name = exe_path + ".old"
+                os.rename(exe_path, temp_name)
+                os.remove(temp_name)
+            except Exception:
+                print("Não foi possível renomear e excluir. Tentando com shutil...")
+                try:
+                    # Tentativa 3: Usar shutil
+                    shutil.rmtree(dist_dir)
+                    os.makedirs(dist_dir)
+                    print(f"Pasta dist recriada com sucesso.")
+                except Exception as e:
+                    print(f"Aviso: Não foi possível remover o executável existente: {str(e)}")
+                    print("Continuando mesmo assim...")
+    
     # Construir o executável
     try:
         print("Construindo o executável...")
         # Usa o arquivo .spec existente
-        result = subprocess.check_call(["pyinstaller", "EmailExtrator.spec", "--clean"])
+        result = subprocess.run(["pyinstaller", "EmailExtrator.spec", "--clean"], shell=True).returncode
         
         if result == 0:
             # Obter o caminho para o executável
-            dist_dir = os.path.join(os.getcwd(), "dist")
-            if platform.system() == "Windows":
-                exe_path = os.path.join(dist_dir, "EmailExtrator.exe")
-            else:
-                exe_path = os.path.join(dist_dir, "EmailExtrator")
-            
             if os.path.exists(exe_path):
                 print("\n============================================")
                 print(f"Executável criado com sucesso em: {exe_path}")

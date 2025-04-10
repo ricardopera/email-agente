@@ -4,13 +4,16 @@ import threading
 import sys
 import os
 import logging
+import re
 from src.email_processor import EmailProcessor, logger
 
 class EmailApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Agente de Extração de Emails")
-        self.root.geometry("600x580")  # Aumentando a altura para acomodar novos controles
+        # Definindo tamanho mínimo inicial, mas permitindo ajuste automático
+        self.root.geometry("600x500")  # Tamanho inicial mínimo
+        self.root.minsize(600, 500)    # Tamanho mínimo permitido
         self.root.resizable(True, True)
         
         self.email_processor = EmailProcessor()
@@ -22,28 +25,11 @@ class EmailApp:
         self.style.configure("TButton", font=("Arial", 10))
         self.style.configure("Header.TLabel", font=("Arial", 12, "bold"))
         
-        # Padrões de campos disponíveis para extração
-        self.available_fields = {
-            'Número do Processo': 'Número processo CNJ',
-            'Valor Líquido': 'Valor liquido transferido para parte',
-            'Juiz': 'Juiz(a) autorizador(a)',
-            'Chefe de Cartório': 'Chefe de cartório responsável',
-            'Subconta': 'Subconta',
-            'Valor Solicitado': 'Valor do pedido solicitado',
-            'Valor Total': 'Valor total do pedido efetuado',
-            'Tipo de Saque': 'Tipo de saque',
-            'Beneficiado': 'Beneficiado',
-            'CPF/CNPJ': 'CPF/CNPJ',
-            'Data do Pedido': 'Data do pedido',
-            'Data da Liberação': 'Data da liberação',
-            'Banco': 'Banco',
-            'Agência': 'Agência',
-            'Conta': 'Conta',
-            'Comprovante': 'Comprovante de liberação'
-        }
-        
-        # Campos selecionados para extração (padrão)
-        self.selected_fields = ['Número do Processo', 'Valor Líquido']
+        # Campos personalizados para extração com tipo de formato
+        self.custom_fields = [
+            {"name": "Número processo CNJ", "pattern": r'(?:Número processo CNJ|Processo)[\s:]*([\d.-]+)', "format": "texto"},
+            {"name": "Valor liquido transferido para parte", "pattern": r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)', "format": "número"},
+        ]
         
         # Carregar configurações salvas
         self.load_saved_config()
@@ -55,20 +41,20 @@ class EmailApp:
         try:
             config = self.email_processor.load_config()
             self.saved_email = config.get('email_user', '')
-            self.saved_server = config.get('imap_host', 'mail.itajai.sc.gov.br')  # Alterando o valor padrão
+            self.saved_server = config.get('imap_host', 'mail.itajai.sc.gov.br')
             self.saved_subject = config.get('search_subject', 'Confirmacao de transferencia bancaria')
             
             # Carregar campos de extração salvos
-            if 'fields_to_extract' in config:
-                self.selected_fields = config.get('fields_to_extract', ['Número do Processo', 'Valor Líquido'])
-                self.email_processor.fields_to_extract = self.selected_fields
+            if 'custom_fields' in config:
+                self.custom_fields = config.get('custom_fields', self.custom_fields)
+                self.email_processor.custom_fields = self.custom_fields
             
             logger.info("Configurações carregadas na interface")
         except Exception as e:
             logger.error(f"Erro ao carregar configurações na interface: {str(e)}")
             self.saved_email = ''
-            self.saved_server = 'mail.itajai.sc.gov.br'  # Alterando o valor padrão
-            self.saved_subject = 'Confirmacao de transferencia bancaria'  # Valor padrão do assunto
+            self.saved_server = 'mail.itajai.sc.gov.br'
+            self.saved_subject = 'Confirmacao de transferencia bancaria'
         
     def create_widgets(self):
         # Frame principal
@@ -108,7 +94,7 @@ class EmailApp:
         
         # Timeout
         ttk.Label(connection_frame, text="Timeout (segundos):").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.timeout_var = tk.StringVar(value="60")  # Aumentando o timeout padrão
+        self.timeout_var = tk.StringVar(value="60")
         ttk.Entry(connection_frame, textvariable=self.timeout_var, width=5).grid(row=1, column=1, sticky=tk.W, pady=2)
         
         # Campo para o assunto
@@ -116,14 +102,32 @@ class EmailApp:
         self.subject_var = tk.StringVar(value=self.saved_subject)
         ttk.Entry(main_frame, textvariable=self.subject_var, width=40).grid(row=6, column=1, sticky=tk.W, pady=5)
         
-        # Botão para configurar campos de extração
-        extraction_frame = ttk.Frame(main_frame)
+        # Frame para os campos de extração personalizados
+        extraction_frame = ttk.LabelFrame(main_frame, text="Campos para Extração", padding=(10, 5))
         extraction_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
-        ttk.Label(extraction_frame, text="Campos para Extração:").pack(side=tk.LEFT, padx=(0, 10))
-        self.selected_fields_display = ttk.Label(extraction_frame, text=self.format_selected_fields())
-        self.selected_fields_display.pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(extraction_frame, text="Configurar", command=self.open_field_selector).pack(side=tk.LEFT)
+        # Header para a lista de campos
+        header_frame = ttk.Frame(extraction_frame)
+        header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        
+        ttk.Label(header_frame, text="Nome do Campo", width=30).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(header_frame, text="Formato", width=10).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(header_frame, text="").pack(side=tk.LEFT)  # Espaço para o botão de remover
+        
+        # Container para os campos dinâmicos
+        self.fields_container = ttk.Frame(extraction_frame)
+        self.fields_container.pack(fill=tk.BOTH, padx=5, pady=5)
+        
+        # Botões para gerenciar campos
+        btn_frame = ttk.Frame(extraction_frame)
+        btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(btn_frame, text="+", width=3, command=self.add_field).pack(side=tk.LEFT)
+        
+        # Carrega os campos personalizados salvos
+        self.field_widgets = []
+        for field in self.custom_fields:
+            self.add_field_widget(field["name"], field.get("format", "texto"))
         
         # Saída de log
         ttk.Label(main_frame, text="Log de Operações:").grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
@@ -143,96 +147,129 @@ class EmailApp:
         ttk.Button(button_frame, text="Processar Emails", command=self.start_processing).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Teste de Conexão", command=self.test_connection).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Sair", command=self.root.quit).pack(side=tk.LEFT, padx=10)
+        
+        # Ajustar tamanho da janela após criar todos os widgets
+        self.root.update_idletasks()
+        
+        # Obter dimensões naturais e posicionar a janela
+        width = main_frame.winfo_reqwidth() + 60  # Adicionar margem
+        height = main_frame.winfo_reqheight() + 60  # Adicionar margem
+        
+        # Definir o tamanho baseado no conteúdo, mas garantindo tamanho mínimo
+        width = max(width, 600)
+        height = max(height, 500)
+        
+        # Centralizar a janela na tela
+        x = (self.root.winfo_screenwidth() - width) // 2
+        y = (self.root.winfo_screenheight() - height) // 2
+        
+        # Definir geometria final
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Garantir que a janela se ajuste se o conteúdo mudar
+        self.root.update_idletasks()
     
-    def format_selected_fields(self):
-        """Formata os campos selecionados para exibição"""
-        if not self.selected_fields:
-            return "Nenhum campo selecionado"
-        
-        if len(self.selected_fields) <= 2:
-            return ", ".join(self.selected_fields)
-        else:
-            return ", ".join(self.selected_fields[:2]) + f" e mais {len(self.selected_fields) - 2}..."
+    def add_field(self):
+        """Adiciona um novo campo de extração personalizado"""
+        self.add_field_widget("")
     
-    def open_field_selector(self):
-        """Abre a janela de seleção de campos para extração"""
-        selector = Toplevel(self.root)
-        selector.title("Selecionar Campos para Extração")
-        selector.geometry("400x400")
-        selector.transient(self.root)  # Faz a janela aparecer acima da janela principal
+    def add_field_widget(self, default_text="", default_format="texto"):
+        """Adiciona um widget de campo personalizado ao container com seleção de formato"""
+        frame = ttk.Frame(self.fields_container)
+        frame.pack(fill=tk.X, pady=2)
         
-        ttk.Label(selector, text="Selecione os campos que deseja extrair dos emails:",
-                 style="Header.TLabel").pack(pady=10, padx=20)
+        field_var = StringVar(value=default_text)
+        entry = ttk.Entry(frame, textvariable=field_var, width=30)
+        entry.pack(side=tk.LEFT, padx=(0, 5))
         
-        # Criar listbox com scrollbar
-        frame = ttk.Frame(selector)
-        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        # Adicionar combo box para seleção de formato
+        format_var = StringVar(value=default_format)
+        format_combo = ttk.Combobox(frame, textvariable=format_var, width=10, state="readonly")
+        format_combo['values'] = ('texto', 'número', 'data')
+        format_combo.pack(side=tk.LEFT, padx=(0, 5))
         
-        scrollbar = ttk.Scrollbar(frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        remove_btn = ttk.Button(frame, text="-", width=2, 
+                              command=lambda f=frame, v=field_var, fv=format_var: self.remove_field(f, v, fv))
+        remove_btn.pack(side=tk.LEFT)
         
-        listbox = Listbox(frame, selectmode=MULTIPLE, height=15, width=40,
-                         yscrollcommand=scrollbar.set)
-        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=listbox.yview)
+        self.field_widgets.append((frame, field_var, entry, format_var))
         
-        # Preencher a listbox com os campos disponíveis
-        for field_name in self.available_fields:
-            listbox.insert(tk.END, f"{field_name}: {self.available_fields[field_name]}")
-            # Se o campo estiver na lista de selecionados, marcar ele
-            if field_name in self.selected_fields:
-                idx = list(self.available_fields.keys()).index(field_name)
-                listbox.selection_set(idx)
+        # Após adicionar um novo campo, reajustar o tamanho da janela
+        self.adjust_window_size()
         
-        # Botões
-        button_frame = ttk.Frame(selector)
-        button_frame.pack(pady=15)
-        
-        ttk.Button(button_frame, text="Confirmar", command=lambda: self.save_selected_fields(listbox, selector)).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Cancelar", command=selector.destroy).pack(side=tk.LEFT, padx=10)
-        
-        # Tornar a janela modal
-        selector.grab_set()
-        self.root.wait_window(selector)
+        return field_var
     
-    def save_selected_fields(self, listbox, selector):
-        """Salva os campos selecionados"""
-        selected_indices = listbox.curselection()
-        field_names = list(self.available_fields.keys())
-        
-        self.selected_fields = [field_names[i] for i in selected_indices]
-        
-        if not self.selected_fields:
-            messagebox.showwarning("Aviso", "É necessário selecionar ao menos um campo.")
+    def remove_field(self, frame, field_var, format_var):
+        """Remove um campo personalizado"""
+        # Não permitir remover se tiver apenas um campo
+        if len(self.field_widgets) <= 1:
+            messagebox.showwarning("Aviso", "Não é possível remover todos os campos. Pelo menos um deve existir.")
             return
-        
-        # Atualizar os padrões de extração no EmailProcessor
-        self.email_processor.fields_to_extract = self.selected_fields
-        
-        # Atualizar a exibição na interface
-        self.selected_fields_display.config(text=self.format_selected_fields())
-        
-        # Atualizar os padrões de extração
-        extraction_patterns = {}
-        for field_name in self.selected_fields:
-            description = self.available_fields[field_name]
-            # Criar um padrão regex básico para cada campo
-            pattern = r'{}[\\s:]*(.+?)(?=\\n|$)'.format(re.escape(description))
-            extraction_patterns[field_name] = pattern
             
-        # Definir padrões mais específicos para certos campos
-        if 'Número do Processo' in self.selected_fields:
-            extraction_patterns['Número do Processo'] = r'(?:Número processo CNJ|Processo)[\s:]*([\d.-]+)'
+        # Remover o widget
+        for i, (f, v, e, fv) in enumerate(self.field_widgets):
+            if f == frame and v == field_var:
+                frame.destroy()
+                self.field_widgets.pop(i)
+                break
         
-        if 'Valor Líquido' in self.selected_fields:
-            extraction_patterns['Valor Líquido'] = r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)'
+        # Após remover um campo, reajustar o tamanho da janela
+        self.adjust_window_size()
+    
+    def adjust_window_size(self):
+        """Ajusta o tamanho da janela com base no conteúdo atual"""
+        # Garantir que todas as atualizações pendentes sejam processadas
+        self.root.update_idletasks()
+        
+        # Altura base e incremento por campo
+        base_height = 600  # Altura base com um campo
+        field_height = 35  # Altura estimada por campo
+        
+        # Calcular a altura necessária baseada no número total de campos
+        total_fields = len(self.field_widgets)
+        required_height = base_height + ((total_fields - 1) * field_height)
+        
+        # Adicionar espaço extra para garantir que tudo fique visível
+        padding = 120
+        required_height += padding
+        
+        # Obter a largura atual (manter a mesma)
+        current_width = self.root.winfo_width()
+        width = max(current_width, 600)
+        
+        # Limitar a altura máxima para não exceder o tamanho da tela
+        max_height = self.root.winfo_screenheight() - 100
+        height = min(required_height, max_height)
+        
+        # Garantir altura mínima
+        height = max(height, 600)
+        
+        # Centralizar a janela na tela
+        x = (self.root.winfo_screenwidth() - width) // 2
+        y = (self.root.winfo_screenheight() - height) // 2
+        
+        # Definir geometria final
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Forçar atualização da interface
+        self.root.update()
+    
+    def get_custom_fields(self):
+        """Obtém todos os campos personalizados inseridos pelo usuário com seu formato"""
+        fields = []
+        for _, var, _, format_var in self.field_widgets:
+            field_name = var.get().strip()
+            field_format = format_var.get().strip()
             
-        self.email_processor.extraction_patterns = extraction_patterns
-        
-        self.log(f"Configurados {len(self.selected_fields)} campos para extração: {', '.join(self.selected_fields)}")
-        
-        # Fechar a janela de seleção
-        selector.destroy()
+            if field_name:
+                # Criar um padrão que capture especificamente o texto entre ": " e a quebra de linha
+                pattern = r'{}:\s*([^\r\n]+)'.format(re.escape(field_name))
+                fields.append({
+                    "name": field_name, 
+                    "pattern": pattern,
+                    "format": field_format
+                })
+        return fields
     
     def log(self, message):
         """Adiciona uma mensagem ao log"""
@@ -306,10 +343,19 @@ class EmailApp:
         if not email or not password or not server or not subject:
             messagebox.showerror("Erro", "Todos os campos são obrigatórios!")
             return
+            
+        # Obter campos personalizados
+        self.custom_fields = self.get_custom_fields()
+        if not self.custom_fields:
+            messagebox.showerror("Erro", "É necessário definir pelo menos um campo para extração!")
+            return
+            
+        # Atualizar os campos de extração no processador
+        self.email_processor.custom_fields = self.custom_fields
         
         # Salvar as configurações para uso futuro
         self.email_processor.search_subject = subject
-        self.email_processor.save_config(email, server, subject, self.selected_fields)
+        self.email_processor.save_config(email, server, subject, self.custom_fields)
         
         # Iniciar thread para não bloquear a interface
         threading.Thread(target=self.process_emails, 
