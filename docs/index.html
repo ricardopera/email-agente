@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Agente | Extrator de Informações de Email</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Font Awesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Email Agente</h1>
+            <p class="version">Versão 1.0.0</p>
+            <div class="download-btn">
+                <a href="https://github.com/ricardopera/email-agente/releases/latest" class="btn">
+                    <i class="fas fa-download"></i> Download
+                </a>
+                <a href="https://github.com/ricardopera/email-agente" class="btn btn-outline">
+                    <i class="fab fa-github"></i> GitHub
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-text">
+                    <h2>Extração automatizada de informações de emails</h2>
+                    <p>Extraia dados importantes como números de processos judiciais e valores monetários dos seus emails automaticamente.</p>
+                </div>
+                <div class="hero-image">
+                    <img src="https://raw.githubusercontent.com/ricardopera/email-agente/main/.github/print.png" alt="Interface do Email Agente" class="app-screenshot">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <h2>Funcionalidades</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-envelope"></i>
+                    </div>
+                    <h3>Conexão IMAP</h3>
+                    <p>Conecta-se a servidores de email via IMAP com suporte a SSL e TLS.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <h3>Busca Avançada</h3>
+                    <p>Localiza emails não lidos com assunto específico.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-font"></i>
+                    </div>
+                    <h3>Suporte a Caracteres Especiais</h3>
+                    <p>Reconhecimento completo de acentos e caracteres especiais do português.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-cog"></i>
+                    </div>
+                    <h3>Campos Personalizáveis</h3>
+                    <p>Defina quais informações deseja extrair dos emails.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-file-alt"></i>
+                    </div>
+                    <h3>Múltiplos Formatos</h3>
+                    <p>Suporta extração de texto, números e datas com formatação automática.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-table"></i>
+                    </div>
+                    <h3>Exportação para Excel</h3>
+                    <p>Salva os dados extraídos em arquivo Excel com formatação apropriada.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="formats" id="formats">
+        <div class="container">
+            <h2>Formatos Suportados</h2>
+            <div class="formats-grid">
+                <div class="format-card">
+                    <h3><i class="fas fa-font"></i> Texto</h3>
+                    <p>Extrai texto simples de campos personalizados.</p>
+                </div>
+                <div class="format-card">
+                    <h3><i class="fas fa-calculator"></i> Número</h3>
+                    <p>Converte valores do formato brasileiro (1.234,56) para decimal.</p>
+                </div>
+                <div class="format-card">
+                    <h3><i class="fas fa-calendar"></i> Data</h3>
+                    <p>Converte datas do formato brasileiro (dd/mm/aaaa) para o formato internacional.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="how-to-use" id="usage">
+        <div class="container">
+            <h2>Como Usar</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Configure sua conta</h3>
+                        <p>Preencha os campos de email, senha e servidor IMAP.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Defina os campos de extração</h3>
+                        <p>Adicione campos personalizados e selecione o formato adequado (texto, número ou data).</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Teste a conexão</h3>
+                        <p>Verifique se as configurações estão corretas usando o botão de teste.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h3>Processe os emails</h3>
+                        <p>Clique em "Processar Emails" para iniciar a extração de dados.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <h3>Visualize os resultados</h3>
+                        <p>Um arquivo Excel será gerado com todos os dados extraídos.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="download" id="download">
+        <div class="container">
+            <h2>Download</h2>
+            <p>O Email Agente está disponível para Windows.</p>
+            <div class="download-options">
+                <a href="https://github.com/ricardopera/email-agente/releases/latest" class="btn download-btn">
+                    <i class="fas fa-download"></i> Baixar Versão 1.0.0
+                </a>
+            </div>
+            <div class="dev-options">
+                <h3>Para desenvolvedores</h3>
+                <p>Clone o repositório e instale as dependências necessárias:</p>
+                <div class="code-block">
+                    <code>git clone https://github.com/ricardopera/email-agente.git</code>
+                    <code>cd email-agente</code>
+                    <code>pip install openpyxl pandas pyinstaller</code>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Email Agente | Desenvolvido por Ricardo Pereira</p>
+            <div class="footer-links">
+                <a href="https://github.com/ricardopera/email-agente"><i class="fab fa-github"></i> GitHub</a>
+                <a href="https://github.com/ricardopera/email-agente/releases/latest"><i class="fas fa-download"></i> Download</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // JavaScript pode ser adicionado aqui se necessário
+        });
+    </script>
+</body>
+</html>
