@@ -1,26 +1,22 @@
 import imaplib
 import email
-from email.header import decode_header
 import re
-import pandas as pd
 import os
-import tkinter as tk
-from tkinter import simpledialog, messagebox
-import getpass
-import sys
-import traceback
 import json
 import logging
+import pandas as pd
+from email.header import decode_header
 from datetime import datetime
+import chardet
 
-# Configuração de logs
+# Configurar logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='email_extrator.log',
-    filemode='a'
+    filename='email_extrator.log'
 )
-logger = logging.getLogger('EmailExtrator')
+
+logger = logging.getLogger('email_extrator')
 
 class EmailProcessor:
     def __init__(self):
@@ -36,6 +32,12 @@ class EmailProcessor:
             {"name": "Número processo CNJ", "pattern": r'(?:Número processo CNJ|Processo)[\s:]*([\d.-]+)', "format": "texto"},
             {"name": "Valor liquido transferido para parte", "pattern": r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)', "format": "número"}
         ]
+        
+        # Campos adicionais para extração de arquivo Excel
+        self.additional_excel_file = ""  # Caminho para o arquivo Excel adicional
+        self.additional_fields = []  # Campos adicionais para extração do Excel
+        self.key_field = ""  # Campo chave para relacionar os dados
+        self.reference_data = None  # DataFrame com dados de referência
         
         self.extracted_data = []
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config.json')
@@ -53,6 +55,11 @@ class EmailProcessor:
             if custom_fields:
                 config['custom_fields'] = custom_fields
             
+            # Salvar as configurações de campos adicionais
+            config['additional_excel_file'] = self.additional_excel_file
+            config['key_field'] = self.key_field
+            config['additional_fields'] = self.additional_fields
+            
             with open(self.config_file, 'w') as f:
                 json.dump(config, f)
                 
@@ -68,6 +75,15 @@ class EmailProcessor:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
+                
+                # Carregar configurações de campos adicionais se existirem
+                if 'additional_excel_file' in config:
+                    self.additional_excel_file = config['additional_excel_file']
+                if 'key_field' in config:
+                    self.key_field = config['key_field']
+                if 'additional_fields' in config:
+                    self.additional_fields = config['additional_fields']
+                
                 logger.info("Configurações carregadas com sucesso")
                 return config
             else:
@@ -383,6 +399,15 @@ class EmailProcessor:
         # Limpar dados extraídos anteriormente
         self.extracted_data = []
         
+        # Carregar dados de referência do Excel se campos adicionais estiverem configurados
+        reference_data_loaded = False
+        if self.additional_excel_file and self.key_field and self.additional_fields:
+            reference_data_loaded = self.load_reference_data()
+            if reference_data_loaded:
+                logger.info(f"Dados de referência carregados do arquivo: {self.additional_excel_file}")
+            else:
+                logger.warning(f"Não foi possível carregar dados de referência: {self.additional_excel_file}")
+        
         logger.info(f"Iniciando processamento de {total_emails} emails")
         
         for email_id in email_ids:
@@ -412,6 +437,30 @@ class EmailProcessor:
                 extracted_fields = self.extract_fields(content)
                 
                 if extracted_fields:
+                    # Se temos dados de referência carregados, buscar campos adicionais
+                    if reference_data_loaded and self.key_field in self.custom_fields:
+                        # Buscar o valor do campo chave entre os campos extraídos
+                        key_field_name = self.key_field
+                        key_value = None
+                        
+                        # Encontrar o campo chave entre os extraídos
+                        for field in self.custom_fields:
+                            if field["name"] == key_field_name and field["name"] in extracted_fields:
+                                key_value = extracted_fields[field["name"]]
+                                break
+                        
+                        if key_value:
+                            # Buscar dados adicionais usando o valor do campo chave
+                            additional_data = self.get_additional_fields_data(key_value)
+                            if additional_data:
+                                logger.info(f"Dados adicionais encontrados para a chave '{key_value}'")
+                                # Adicionar os campos adicionais aos dados extraídos
+                                extracted_fields.update(additional_data)
+                            else:
+                                logger.warning(f"Nenhum dado adicional encontrado para a chave '{key_value}'")
+                        else:
+                            logger.warning(f"Campo chave '{key_field_name}' não encontrado ou vazio nos dados extraídos")
+                    
                     # Adicionar metadados do email apenas se solicitado
                     # (mantemos apenas os campos especificados pelo usuário)
                     logger.info(f"Campos extraídos: {extracted_fields}")
@@ -555,3 +604,70 @@ class EmailProcessor:
                 self.imap_server.logout()
             except:
                 pass
+
+    def load_reference_data(self):
+        """Carrega os dados do arquivo Excel de referência"""
+        if not self.additional_excel_file or not os.path.exists(self.additional_excel_file):
+            logger.warning(f"Arquivo de referência não encontrado: {self.additional_excel_file}")
+            return False
+            
+        try:
+            # Carregar o arquivo Excel em um DataFrame
+            self.reference_data = pd.read_excel(self.additional_excel_file)
+            
+            # Verificar se o campo chave existe no DataFrame
+            if self.key_field and self.key_field not in self.reference_data.columns:
+                logger.warning(f"Campo chave '{self.key_field}' não encontrado no arquivo Excel")
+                return False
+                
+            # Verificar se os campos adicionais existem no DataFrame
+            missing_fields = []
+            for field in self.additional_fields:
+                if field not in self.reference_data.columns:
+                    missing_fields.append(field)
+                    
+            if missing_fields:
+                logger.warning(f"Campos adicionais não encontrados no arquivo Excel: {', '.join(missing_fields)}")
+                return False
+                
+            logger.info(f"Dados de referência carregados com sucesso: {len(self.reference_data)} registros")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao carregar arquivo de referência: {str(e)}")
+            return False
+
+    def get_additional_fields_data(self, key_value):
+        """
+        Busca dados adicionais no arquivo Excel de referência com base no valor do campo chave
+        
+        Args:
+            key_value: O valor do campo chave a ser buscado no Excel
+            
+        Returns:
+            Um dicionário com os campos adicionais encontrados ou vazio se não encontrar
+        """
+        if self.reference_data is None or not self.key_field or not self.additional_fields:
+            return {}
+        
+        try:
+            # Verifica se o valor da chave está no DataFrame
+            matches = self.reference_data[self.reference_data[self.key_field] == key_value]
+            
+            if matches.empty:
+                logger.warning(f"Nenhum registro encontrado para o valor chave: {key_value}")
+                return {}
+            
+            # Obtém o primeiro registro correspondente (assume-se chave única)
+            first_match = matches.iloc[0]
+            
+            # Extrai os campos adicionais
+            result = {}
+            for field in self.additional_fields:
+                if field in first_match:
+                    result[field] = first_match[field]
+            
+            logger.info(f"Dados adicionais encontrados para chave '{key_value}': {result}")
+            return result
+        except Exception as e:
+            logger.error(f"Erro ao buscar dados adicionais para '{key_value}': {str(e)}")
+            return {}

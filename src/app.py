@@ -1,10 +1,11 @@
 import tkinter as tk
-from tkinter import ttk, simpledialog, messagebox, BooleanVar, Checkbutton, StringVar, Frame, Listbox, MULTIPLE, Toplevel
+from tkinter import ttk, simpledialog, messagebox, BooleanVar, Checkbutton, StringVar, Frame, Listbox, MULTIPLE, Toplevel, filedialog
 import threading
 import sys
 import os
 import logging
 import re
+import pandas as pd
 from src.email_processor import EmailProcessor, logger
 
 class EmailApp:
@@ -30,6 +31,11 @@ class EmailApp:
             {"name": "Número processo CNJ", "pattern": r'(?:Número processo CNJ|Processo)[\s:]*([\d.-]+)', "format": "texto"},
             {"name": "Valor liquido transferido para parte", "pattern": r'Valor liquido transferido para parte:[\s]*R\$([\d.,]+)', "format": "número"},
         ]
+        
+        # Campos adicionais para extração de arquivo Excel
+        self.additional_excel_file = ""  # Caminho para o arquivo Excel adicional
+        self.additional_fields = []  # Campos adicionais para extração do Excel
+        self.key_field = ""  # Campo chave para relacionar os dados
         
         # Carregar configurações salvas
         self.load_saved_config()
@@ -129,45 +135,79 @@ class EmailApp:
         for field in self.custom_fields:
             self.add_field_widget(field["name"], field.get("format", "texto"))
         
+        # Frame para os campos adicionais a serem extraídos de um arquivo Excel
+        additional_frame = ttk.LabelFrame(main_frame, text="Campos Adicionais (Arquivo Excel)", padding=(10, 5))
+        additional_frame.grid(row=8, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        # Seleção do arquivo Excel
+        excel_frame = ttk.Frame(additional_frame)
+        excel_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(excel_frame, text="Arquivo Excel:").pack(side=tk.LEFT, padx=(0, 5))
+        self.excel_file_var = tk.StringVar()
+        excel_entry = ttk.Entry(excel_frame, textvariable=self.excel_file_var, width=40)
+        excel_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
+        
+        # Botão para selecionar o arquivo
+        excel_btn = ttk.Button(excel_frame, text="Selecionar", command=self.select_excel_file)
+        excel_btn.pack(side=tk.LEFT)
+        
+        # Campo chave
+        key_frame = ttk.Frame(additional_frame)
+        key_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(key_frame, text="Campo Chave:").pack(side=tk.LEFT, padx=(0, 5))
+        self.key_field_var = tk.StringVar()
+        ttk.Entry(key_frame, textvariable=self.key_field_var, width=30).pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Header para campos adicionais
+        add_header_frame = ttk.Frame(additional_frame)
+        add_header_frame.pack(fill=tk.X, padx=5, pady=(10, 0))
+        
+        ttk.Label(add_header_frame, text="Campos Adicionais", width=30).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(add_header_frame, text="").pack(side=tk.LEFT)  # Espaço para o botão de remover
+        
+        # Container para os campos adicionais dinâmicos
+        self.additional_fields_container = ttk.Frame(additional_frame)
+        self.additional_fields_container.pack(fill=tk.BOTH, padx=5, pady=5)
+        
+        # Botões para gerenciar campos adicionais
+        add_btn_frame = ttk.Frame(additional_frame)
+        add_btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(add_btn_frame, text="+", width=3, command=self.add_additional_field).pack(side=tk.LEFT)
+        
+        # Inicializa os widgets de campos adicionais
+        self.additional_field_widgets = []
+        # Se já tiver campos adicionais salvos, carregá-los
+        if self.additional_fields:
+            for field in self.additional_fields:
+                self.add_additional_field_widget(field)
+        else:
+            # Adicionar pelo menos um campo adicional vazio
+            self.add_additional_field_widget("")
+        
         # Saída de log
-        ttk.Label(main_frame, text="Log de Operações:").grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        ttk.Label(main_frame, text="Log de Operações:").grid(row=9, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
         
         self.log_text = tk.Text(main_frame, height=10, width=60, wrap=tk.WORD)
-        self.log_text.grid(row=9, column=0, columnspan=2, pady=5)
+        self.log_text.grid(row=10, column=0, columnspan=2, pady=5)
         
         # Scroll para o log
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.log_text.yview)
-        scrollbar.grid(row=9, column=2, sticky=(tk.N, tk.S))
+        scrollbar.grid(row=10, column=2, sticky=(tk.N, tk.S))
         self.log_text.configure(yscrollcommand=scrollbar.set)
         
         # Botões
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=10, column=0, columnspan=2, pady=15)
+        button_frame.grid(row=11, column=0, columnspan=2, pady=15)
         
         ttk.Button(button_frame, text="Processar Emails", command=self.start_processing).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Teste de Conexão", command=self.test_connection).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Sair", command=self.root.quit).pack(side=tk.LEFT, padx=10)
         
         # Ajustar tamanho da janela após criar todos os widgets
-        self.root.update_idletasks()
-        
-        # Obter dimensões naturais e posicionar a janela
-        width = main_frame.winfo_reqwidth() + 60  # Adicionar margem
-        height = main_frame.winfo_reqheight() + 60  # Adicionar margem
-        
-        # Definir o tamanho baseado no conteúdo, mas garantindo tamanho mínimo
-        width = max(width, 600)
-        height = max(height, 500)
-        
-        # Centralizar a janela na tela
-        x = (self.root.winfo_screenwidth() - width) // 2
-        y = (self.root.winfo_screenheight() - height) // 2
-        
-        # Definir geometria final
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
-        
-        # Garantir que a janela se ajuste se o conteúdo mudar
-        self.root.update_idletasks()
+        self.adjust_window_size()
     
     def add_field(self):
         """Adiciona um novo campo de extração personalizado"""
@@ -216,6 +256,93 @@ class EmailApp:
         # Após remover um campo, reajustar o tamanho da janela
         self.adjust_window_size()
     
+    def add_additional_field(self):
+        """Adiciona um novo campo adicional para extração do Excel"""
+        self.add_additional_field_widget("")
+    
+    def add_additional_field_widget(self, default_text=""):
+        """Adiciona um widget de campo adicional ao container"""
+        frame = ttk.Frame(self.additional_fields_container)
+        frame.pack(fill=tk.X, pady=2)
+        
+        field_var = StringVar(value=default_text)
+        entry = ttk.Entry(frame, textvariable=field_var, width=30)
+        entry.pack(side=tk.LEFT, padx=(0, 5))
+        
+        remove_btn = ttk.Button(frame, text="-", width=2, 
+                              command=lambda f=frame, v=field_var: self.remove_additional_field(f, v))
+        remove_btn.pack(side=tk.LEFT)
+        
+        self.additional_field_widgets.append((frame, field_var, entry))
+        
+        # Após adicionar um novo campo, reajustar o tamanho da janela
+        self.adjust_window_size()
+        
+        return field_var
+    
+    def remove_additional_field(self, frame, field_var):
+        """Remove um campo adicional"""
+        # Não permitir remover se tiver apenas um campo
+        if len(self.additional_field_widgets) <= 1:
+            messagebox.showwarning("Aviso", "Não é possível remover todos os campos adicionais. Pelo menos um deve existir.")
+            return
+            
+        # Remover o widget
+        for i, (f, v, e) in enumerate(self.additional_field_widgets):
+            if f == frame and v == field_var:
+                frame.destroy()
+                self.additional_field_widgets.pop(i)
+                break
+        
+        # Após remover um campo, reajustar o tamanho da janela
+        self.adjust_window_size()
+    
+    def select_excel_file(self):
+        """Abre um diálogo para selecionar o arquivo Excel"""
+        file_path = filedialog.askopenfilename(filetypes=[("Arquivos Excel", "*.xlsx *.xls")])
+        if file_path:
+            self.excel_file_var.set(file_path)
+            
+            # Se o arquivo for selecionado, podemos mostrar as colunas disponíveis
+            try:
+                if file_path.lower().endswith(('.xlsx', '.xls')):
+                    # Carregar o arquivo Excel para visualizar colunas disponíveis
+                    df = pd.read_excel(file_path)
+                    if not df.empty:
+                        columns = df.columns.tolist()
+                        self.show_available_columns(columns)
+            except Exception as e:
+                logger.error(f"Erro ao ler arquivo Excel: {str(e)}")
+                messagebox.showerror("Erro", f"Não foi possível ler o arquivo Excel: {str(e)}")
+    
+    def show_available_columns(self, columns):
+        """Mostra uma janela com as colunas disponíveis no Excel para referência"""
+        if not columns:
+            return
+            
+        # Criar uma janela popup para mostrar as colunas disponíveis
+        columns_window = Toplevel(self.root)
+        columns_window.title("Colunas Disponíveis")
+        columns_window.geometry("300x300")
+        
+        ttk.Label(columns_window, text="Colunas disponíveis no arquivo Excel:").pack(pady=10)
+        
+        # Lista de colunas
+        columns_listbox = Listbox(columns_window, width=40, height=15)
+        columns_listbox.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        
+        # Preencher a lista
+        for col in columns:
+            columns_listbox.insert(tk.END, col)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(columns_listbox, orient="vertical", command=columns_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        columns_listbox.config(yscrollcommand=scrollbar.set)
+        
+        # Botão de fechar
+        ttk.Button(columns_window, text="Fechar", command=columns_window.destroy).pack(pady=10)
+    
     def adjust_window_size(self):
         """Ajusta o tamanho da janela com base no conteúdo atual"""
         # Garantir que todas as atualizações pendentes sejam processadas
@@ -226,7 +353,7 @@ class EmailApp:
         field_height = 35  # Altura estimada por campo
         
         # Calcular a altura necessária baseada no número total de campos
-        total_fields = len(self.field_widgets)
+        total_fields = len(self.field_widgets) + len(self.additional_field_widgets)
         required_height = base_height + ((total_fields - 1) * field_height)
         
         # Adicionar espaço extra para garantir que tudo fique visível
@@ -270,6 +397,26 @@ class EmailApp:
                     "format": field_format
                 })
         return fields
+    
+    def get_additional_fields(self):
+        """Obtém todos os campos adicionais inseridos pelo usuário"""
+        fields = []
+        for _, var, _ in self.additional_field_widgets:
+            field_name = var.get().strip()
+            if field_name:
+                fields.append(field_name)
+        return fields
+    
+    def save_additional_fields_config(self):
+        """Salva as configurações de campos adicionais"""
+        self.additional_excel_file = self.excel_file_var.get().strip()
+        self.key_field = self.key_field_var.get().strip()
+        self.additional_fields = self.get_additional_fields()
+        
+        # Atualizar as configurações no processador de email
+        self.email_processor.additional_excel_file = self.additional_excel_file
+        self.email_processor.key_field = self.key_field
+        self.email_processor.additional_fields = self.additional_fields
     
     def log(self, message):
         """Adiciona uma mensagem ao log"""
@@ -356,6 +503,9 @@ class EmailApp:
         # Salvar as configurações para uso futuro
         self.email_processor.search_subject = subject
         self.email_processor.save_config(email, server, subject, self.custom_fields)
+        
+        # Salvar configurações de campos adicionais
+        self.save_additional_fields_config()
         
         # Iniciar thread para não bloquear a interface
         threading.Thread(target=self.process_emails, 
