@@ -4,6 +4,29 @@ Aplicativo para extração automática de informações de emails, como números
 
 ![Interface do Email Agente](.github/print.png)
 
+## 🌟 NOVA VERSÃO WEB DISPONÍVEL!
+
+Agora disponível em **duas versões**:
+
+### 🖥️ **Versão Desktop** (Original - Tkinter)
+- Interface nativa para Windows
+- Aplicação standalone (.exe)
+
+### 🌐 **Versão Web** (Nova - Flask)
+- Interface moderna e responsiva
+- Funciona em qualquer sistema operacional
+- Processamento local através do navegador
+- **[Ver documentação completa da versão web →](README_WEB.md)**
+
+![Interface Web](https://github.com/user-attachments/assets/577e5792-85b8-42b0-b753-f19729548dfc)
+
+**Para usar a versão web:**
+```bash
+pip install flask pandas openpyxl
+python web_app.py
+# Acesse: http://localhost:5001
+```
+
 ## Funcionalidades
 
 - Conecta-se a servidores de email via IMAP (suporte a SSL e TLS)
