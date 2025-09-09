@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Agente - Versão Web</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <header class="py-3 mb-4 border-bottom">
+                    <h1 class="text-center">
+                        <i class="fas fa-envelope-open-text text-primary me-2"></i>
+                        Email Agente - Versão Web
+                    </h1>
+                    <p class="text-center text-muted">Extração automática de informações de emails</p>
+                </header>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-lg-8">
+                <!-- Configurações de Conexão -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-server me-2"></i>Configurações de Conexão</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="email_user" class="form-label">Endereço de Email:</label>
+                                <input type="email" class="form-control" id="email_user" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="email_pass" class="form-label">Senha:</label>
+                                <input type="password" class="form-control" id="email_pass" required>
+                            </div>
+                        </div>
+                        
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <label for="imap_host" class="form-label">Servidor IMAP:</label>
+                                <input type="text" class="form-control" id="imap_host" value="mail.itajai.sc.gov.br">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="imap_port" class="form-label">Porta:</label>
+                                <input type="number" class="form-control" id="imap_port" value="993">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="timeout" class="form-label">Timeout (s):</label>
+                                <input type="number" class="form-control" id="timeout" value="60">
+                            </div>
+                        </div>
+                        
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="use_ssl" checked>
+                                    <label class="form-check-label" for="use_ssl">
+                                        Usar SSL (desmarque para TLS)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="search_subject" class="form-label">Texto do Assunto:</label>
+                                <input type="text" class="form-control" id="search_subject" value="Confirmacao de transferencia bancaria">
+                            </div>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-outline-primary" onclick="testConnection()">
+                                <i class="fas fa-plug me-2"></i>Testar Conexão
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="loadConfig()">
+                                <i class="fas fa-download me-2"></i>Carregar Configurações
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="saveConfig()">
+                                <i class="fas fa-save me-2"></i>Salvar Configurações
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Campos para Extração -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-search me-2"></i>Campos para Extração</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="custom_fields_container">
+                            <!-- Fields will be added dynamically -->
+                        </div>
+                        <button type="button" class="btn btn-success btn-sm" onclick="addCustomField()">
+                            <i class="fas fa-plus me-2"></i>Adicionar Campo
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Arquivo Excel Adicional -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-file-excel me-2"></i>Arquivo Excel Adicional (Opcional)</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <label for="excel_file" class="form-label">Arquivo Excel:</label>
+                                <input type="file" class="form-control" id="excel_file" accept=".xlsx,.xls">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="key_field" class="form-label">Campo Chave:</label>
+                                <input type="text" class="form-control" id="key_field" placeholder="Nome do campo chave">
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <label class="form-label">Campos Adicionais:</label>
+                                <div id="additional_fields_container">
+                                    <!-- Additional fields will be added dynamically -->
+                                </div>
+                                <button type="button" class="btn btn-success btn-sm" onclick="addAdditionalField()">
+                                    <i class="fas fa-plus me-2"></i>Adicionar Campo Adicional
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Botões de Ação -->
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <button type="button" class="btn btn-primary btn-lg me-3" onclick="processEmails()">
+                            <i class="fas fa-cogs me-2"></i>Processar Emails
+                        </button>
+                        <button type="button" class="btn btn-success btn-lg" onclick="downloadExcel()" id="download_btn" disabled>
+                            <i class="fas fa-download me-2"></i>Baixar Excel
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-4">
+                <!-- Status de Processamento -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-info-circle me-2"></i>Status do Processamento</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="processing_status">
+                            <p class="text-muted">Pronto para processar emails</p>
+                        </div>
+                        <div class="progress mb-3" style="display: none;" id="progress_bar">
+                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Log de Operações -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-list me-2"></i>Log de Operações</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="log_container" style="height: 300px; overflow-y: auto; background-color: #f8f9fa; padding: 10px; border-radius: 5px;">
+                            <div class="text-muted">Aguardando operações...</div>
+                        </div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm mt-2" onclick="clearLog()">
+                            <i class="fas fa-trash me-2"></i>Limpar Log
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modals -->
+    <div class="modal fade" id="messageModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="messageModalTitle">Mensagem</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="messageModalBody">
+                    <!-- Message content -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

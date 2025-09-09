@@ -7,7 +7,8 @@ import logging
 import pandas as pd
 from email.header import decode_header
 from datetime import datetime
-import chardet
+import socket
+import traceback
 
 # Configurar logging
 logging.basicConfig(
@@ -134,17 +135,14 @@ class EmailProcessor:
         except ConnectionRefusedError:
             error_msg = f"Conexão recusada pelo servidor {imap_host}:{imap_port}. Verifique se o endereço e porta estão corretos."
             logger.error(error_msg)
-            messagebox.showerror("Erro de Conexão", error_msg)
             return False
         except TimeoutError:
             error_msg = f"Tempo limite excedido ao conectar a {imap_host}:{imap_port}. Verifique sua conexão e se o servidor está acessível.\n\nDica: Aumente o valor de timeout ou verifique se há firewalls bloqueando a conexão."
             logger.error(error_msg)
-            messagebox.showerror("Erro de Timeout", error_msg)
             return False
         except socket.timeout:
             error_msg = f"Socket timeout ao conectar a {imap_host}:{imap_port}. Aumentar o timeout pode resolver este problema (WinError 10060)."
             logger.error(error_msg)
-            messagebox.showerror("Erro de Timeout", error_msg)
             return False
         except imaplib.IMAP4.error as e:
             if 'LOGIN failed' in str(e):
@@ -152,13 +150,11 @@ class EmailProcessor:
             else:
                 error_msg = f"Erro de IMAP: {str(e)}"
             logger.error(error_msg)
-            messagebox.showerror("Erro IMAP", error_msg)
             return False
         except Exception as e:
             error_msg = f"Não foi possível conectar ao servidor: {str(e)}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
-            messagebox.showerror("Erro de Conexão", error_msg)
             return False
 
     def _check_network_connectivity(self, host, port):
@@ -376,19 +372,18 @@ class EmailProcessor:
                 status, messages = self.imap_server.search(None, '(UNSEEN SUBJECT "{}")'.format(search_subject))
             
             if status != 'OK':
-                messagebox.showwarning("Aviso", "Não foi possível buscar emails.")
+                logger.warning("Não foi possível buscar emails.")
                 return []
             
             email_ids = messages[0].split()
             
             if not email_ids:
-                messagebox.showinfo("Informação", "Nenhum email não lido encontrado com o assunto especificado.")
+                logger.info("Nenhum email não lido encontrado com o assunto especificado.")
                 return []
                 
             return email_ids
         except Exception as e:
             logger.error(f"Erro ao buscar emails: {str(e)}", exc_info=True)
-            messagebox.showerror("Erro", f"Erro ao buscar emails: {str(e)}")
             return []
 
     def process_emails(self, email_ids):
@@ -480,7 +475,7 @@ class EmailProcessor:
     def save_to_excel(self, filename=None):
         """Salva os dados extraídos em um arquivo Excel com os formatos adequados"""
         if not self.extracted_data:
-            messagebox.showinfo("Informação", "Nenhum dado para salvar.")
+            logger.info("Nenhum dado para salvar.")
             return False
             
         try:
@@ -588,12 +583,11 @@ class EmailProcessor:
                     
                     df.to_excel(writer, index=False)
             
-            messagebox.showinfo("Sucesso", f"Dados salvos com sucesso em {full_path}")
+            logger.info(f"Dados salvos com sucesso em {full_path}")
             return True
         except Exception as e:
             error_msg = f"Erro ao salvar arquivo Excel: {str(e)}"
             logger.error(error_msg, exc_info=True)
-            messagebox.showerror("Erro", error_msg)
             return False
 
     def close_connection(self):
